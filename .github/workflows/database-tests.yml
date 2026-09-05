@@ -1,0 +1,64 @@
+name: Database Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  database-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgresql_database_testing
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d postgresql_database_testing"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: postgresql_database_testing
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check PostgreSQL client
+        run: psql --version
+
+      - name: Load database schema
+        run: psql --set ON_ERROR_STOP=1 --file=databases/schema.sql
+
+      - name: Load test data
+        run: psql --set ON_ERROR_STOP=1 --file=databases/test_data.sql
+
+      - name: Run diagnostic test queries
+        run: |
+          for file in \
+            tests/data-validation.sql \
+            tests/business-rules.sql \
+            tests/referential-integrity.sql \
+            tests/duplicate-data.sql \
+            tests/data-reconciliation.sql
+          do
+            echo "Running $file"
+            psql --set ON_ERROR_STOP=1 --pset pager=off --file="$file"
+          done
+
+      - name: Run automated assertions
+        run: psql --set ON_ERROR_STOP=1 --file=tests/automated-assertions.sql
