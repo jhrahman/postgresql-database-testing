@@ -80,6 +80,7 @@ Unexpected rows should be treated as failed validations and investigated against
 ├── .github/
 │   └── workflows/
 │       └── database-tests.yml
+├── .env.example          # Local database configuration template
 └── README.md
 ```
 
@@ -90,13 +91,30 @@ Unexpected rows should be treated as failed validations and investigated against
 - PostgreSQL 13 or later
 - The `psql` command-line client available on your `PATH`
 - Permission to create a local database
+- A local `.env` file created from `.env.example`
 
 The SQL is standard PostgreSQL and does not require an application server or external service.
+
+### Configure local credentials
+
+Create a local environment file. It is ignored by Git and should never be committed:
+
+```bash
+cp .env.example .env
+```
+
+Update `PGUSER` and `PGPASSWORD` in `.env` for your local PostgreSQL installation, then load the variables into your shell before running the commands below:
+
+```bash
+set -a
+source .env
+set +a
+```
 
 ### 1. Create a test database
 
 ```bash
-createdb postgresql_database_testing
+createdb "$PGDATABASE"
 ```
 
 If the database already exists and you want a clean run, recreate it or use a different database name. The schema script drops and recreates the project tables, while the seed script inserts the sample records.
@@ -106,8 +124,8 @@ If the database already exists and you want a clean run, recreate it or use a di
 Run these commands from the repository root:
 
 ```bash
-psql -d postgresql_database_testing -f databases/schema.sql
-psql -d postgresql_database_testing -f databases/test_data.sql
+psql -f databases/schema.sql
+psql -f databases/test_data.sql
 ```
 
 ### 3. Execute the validation suites
@@ -115,12 +133,12 @@ psql -d postgresql_database_testing -f databases/test_data.sql
 Run each suite individually so the output remains easy to trace to a test area:
 
 ```bash
-psql --set ON_ERROR_STOP=1 --pset pager=off -d postgresql_database_testing -f tests/data-validation.sql
-psql --set ON_ERROR_STOP=1 --pset pager=off -d postgresql_database_testing -f tests/business-rules.sql
-psql --set ON_ERROR_STOP=1 --pset pager=off -d postgresql_database_testing -f tests/referential-integrity.sql
-psql --set ON_ERROR_STOP=1 --pset pager=off -d postgresql_database_testing -f tests/duplicate-data.sql
-psql --set ON_ERROR_STOP=1 --pset pager=off -d postgresql_database_testing -f tests/data-reconciliation.sql
-psql --set ON_ERROR_STOP=1 --pset pager=off -d postgresql_database_testing -f tests/automated-assertions.sql
+psql --set ON_ERROR_STOP=1 --pset pager=off -f tests/data-validation.sql
+psql --set ON_ERROR_STOP=1 --pset pager=off -f tests/business-rules.sql
+psql --set ON_ERROR_STOP=1 --pset pager=off -f tests/referential-integrity.sql
+psql --set ON_ERROR_STOP=1 --pset pager=off -f tests/duplicate-data.sql
+psql --set ON_ERROR_STOP=1 --pset pager=off -f tests/data-reconciliation.sql
+psql --set ON_ERROR_STOP=1 --pset pager=off -f tests/automated-assertions.sql
 ```
 
 Or run every test file with one shell loop:
@@ -154,6 +172,8 @@ This project uses query-result validation to make each check transparent and eas
 ## Continuous Integration
 
 GitHub Actions runs the database tests automatically on every push, pull request, and manual workflow dispatch. The workflow starts a PostgreSQL 16 service, loads the schema and test data, runs the diagnostic SQL suites, and executes [`tests/automated-assertions.sql`](tests/automated-assertions.sql).
+
+The workflow reads `POSTGRES_USER` and `POSTGRES_PASSWORD` from GitHub repository secrets. Configure these under **Settings > Secrets and variables > Actions > New repository secret**. The required secret names are `POSTGRES_USER` and `POSTGRES_PASSWORD`. No database password is stored in the repository.
 
 The diagnostic queries make failures easy to investigate by showing the affected records. The automated assertion suite raises a PostgreSQL error when an expected result is not met, causing the GitHub Actions job to fail.
 
