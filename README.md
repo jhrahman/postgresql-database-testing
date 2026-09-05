@@ -1,5 +1,7 @@
 # PostgreSQL Database Testing Portfolio
 
+[View the latest automated test report](https://jhrahman.github.io/postgresql-database-testing/)
+
 ![PostgreSQL](https://img.shields.io/badge/database-PostgreSQL-336791?logo=postgresql&logoColor=white)
 ![Testing](https://img.shields.io/badge/testing-SQL%20validation-2f855a)
 
@@ -73,7 +75,8 @@ Unexpected rows should be treated as failed validations and investigated against
 │   ├── data-validation.sql
 │   ├── duplicate-data.sql
 │   ├── referential-integrity.sql
-│   └── automated-assertions.sql
+│   ├── automated-assertions.sql
+│   └── scenario-report.sql
 ├── .github/
 │   └── workflows/
 │       └── database-tests.yml
@@ -153,3 +156,7 @@ This project uses query-result validation to make each check transparent and eas
 GitHub Actions runs the database tests automatically on every push, pull request, and manual workflow dispatch. The workflow starts a PostgreSQL 16 service, loads the schema and test data, runs the diagnostic SQL suites, and executes [`tests/automated-assertions.sql`](tests/automated-assertions.sql).
 
 The diagnostic queries make failures easy to investigate by showing the affected records. The automated assertion suite raises a PostgreSQL error when an expected result is not met, causing the GitHub Actions job to fail.
+
+The workflow also generates a responsive HTML report with an explicit result for every scenario from DB-001 through DB-011. Each scenario displays its category, title, expected outcome, observed result, and a clear `PASS` or `FAIL` badge. The report includes run metadata and assertion output, and is uploaded as a GitHub Actions artifact for every run. For pushes and manual runs, it is additionally published to GitHub Pages; pull requests still receive the downloadable artifact without deploying a public Pages version.
+
+To enable the Pages deployment, set the repository's **Settings > Pages > Source** to **GitHub Actions**. The report link at the top of this README points to the published report.

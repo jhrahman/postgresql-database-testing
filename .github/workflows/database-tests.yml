@@ -38,6 +38,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Initialize report directory
+        run: 'mkdir -p reports && : > reports/results.tsv'
+
       - name: Check PostgreSQL client
         run: psql --version
 
@@ -48,7 +51,10 @@ jobs:
         run: psql --set ON_ERROR_STOP=1 --file=databases/test_data.sql
 
       - name: Run diagnostic test queries
+        id: diagnostic-tests
+        continue-on-error: true
         run: |
+          overall_status=0
           for file in \
             tests/data-validation.sql \
             tests/business-rules.sql \
@@ -57,8 +63,91 @@ jobs:
             tests/data-reconciliation.sql
           do
             echo "Running $file"
-            psql --set ON_ERROR_STOP=1 --pset pager=off --file="$file"
+            output_file="reports/$(basename "$file" .sql).log"
+            set +e
+            psql --set ON_ERROR_STOP=1 --pset pager=off --file="$file" > "$output_file" 2>&1
+            test_status=$?
+            set -e
+            if [[ "$test_status" -eq 0 ]]; then
+              suite_status=EXECUTED
+            else
+              suite_status=FAIL
+              overall_status=1
+            fi
+            printf '%s\t%s\t%s\n' "$file" "$suite_status" "See uploaded log" >> reports/results.tsv
+            cat "$output_file"
           done
+          exit "$overall_status"
 
       - name: Run automated assertions
-        run: psql --set ON_ERROR_STOP=1 --file=tests/automated-assertions.sql
+        id: assertions
+        continue-on-error: true
+        run: |
+          set +e
+          psql --set ON_ERROR_STOP=1 --file=tests/automated-assertions.sql > reports/assertions.log 2>&1
+          test_status=$?
+          set -e
+          if [[ "$test_status" -eq 0 ]]; then
+            printf 'tests/automated-assertions.sql\tPASS\t0\n' >> reports/results.tsv
+          else
+            printf 'tests/automated-assertions.sql\tFAIL\t0\n' >> reports/results.tsv
+          fi
+          cat reports/assertions.log
+          exit "$test_status"
+
+      - name: Evaluate individual scenarios
+        id: scenarios
+        continue-on-error: true
+        run: |
+          set +e
+          psql --set ON_ERROR_STOP=1 --no-align --field-separator=$'\t' --tuples-only --quiet \
+            --file=tests/scenario-report.sql > reports/scenarios.tsv 2> reports/scenarios.log
+          test_status=$?
+          set -e
+          cat reports/scenarios.log
+          exit "$test_status"
+
+      - name: Generate HTML report
+        if: always()
+        run: bash .github/scripts/generate-report.sh reports
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-test-report
+          path: reports
+
+      - name: Fail workflow when tests fail
+        if: steps.diagnostic-tests.outcome == 'failure' || steps.assertions.outcome == 'failure' || steps.scenarios.outcome == 'failure'
+        run: exit 1
+
+  publish-report:
+    if: always() && github.event_name != 'pull_request'
+    needs: database-tests
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: database-test-report
+          path: reports
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: reports
+
+      - name: Deploy report to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
